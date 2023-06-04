@@ -1,0 +1,1 @@
+from .jigsaw import JointSegmentationAlignmentModel

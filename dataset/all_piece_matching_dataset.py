@@ -1,17 +1,11 @@
-import copy
 import os
 import pickle
 import random
-import torch
-import torch.nn.functional as F
-import trimesh
-import numpy as np
-from scipy.spatial.transform import Rotation as R
 
+import numpy as np
+import trimesh
+from scipy.spatial.transform import Rotation as R
 from torch.utils.data import Dataset, DataLoader
-from functools import partial
-from .kpconv_utils import calibrate_neighbors, collate_fn_kpconv
-from utils import is_fracture_point
 
 
 class AllPieceMatchingDataset(Dataset):
@@ -26,27 +20,25 @@ class AllPieceMatchingDataset(Dataset):
             data_dir,
             data_fn,
             data_keys,
-            category='',
+            category="",
             num_points=1000,
             min_num_part=2,
             max_num_part=20,
             shuffle_parts=False,
             rot_range=-1,
             overfit=-1,
-
             length=-1,
-
-            sample_by='point',
+            sample_by="point",
             min_part_point=30,
             fracture_threshold_cfg=None,
     ):
         # store parameters
-        self.category = category if category.lower() != 'all' else ''
+        self.category = category if category.lower() != "all" else ""
         self.data_dir = data_dir
         self.num_points = num_points
         self.min_num_part = min_num_part
         self.max_num_part = max_num_part  # ignore shapes with more parts
-        self.min_part_point = min_part_point  # ensure that each piece has at least # points
+        self.min_part_point = min_part_point # ensure that each piece has at least # points
         self.shuffle_parts = shuffle_parts  # shuffle part orders
         self.rot_range = rot_range  # rotation range in degree
 
@@ -72,7 +64,10 @@ class AllPieceMatchingDataset(Dataset):
             self.length = len(self.data_list)
 
         if fracture_threshold_cfg is None:
-            self.fracture_threshold_cfg = {'p2p_threshold': 0.01, 'bary_threshold': 0.65}
+            self.fracture_threshold_cfg = {
+                "p2p_threshold": 0.01,
+                "bary_threshold": 0.65,
+            }
         else:
             self.fracture_threshold_cfg = fracture_threshold_cfg
 
@@ -82,32 +77,29 @@ class AllPieceMatchingDataset(Dataset):
     def _read_data(self, data_fn):
         """Filter out invalid number of parts and generate data_list."""
         # Load pre-generated data_list if exists.
-        pre_compute_file_name = f'all_piece_matching_metadata_{self.min_num_part}_{self.max_num_part}_' + data_fn
+        pre_compute_file_name = f"all_piece_matching_metadata_{self.min_num_part}_{self.max_num_part}_" + data_fn
         if os.path.exists(os.path.join(self.data_dir, pre_compute_file_name)):
-            with open(os.path.join(self.data_dir, pre_compute_file_name), 'rb') as meta_table:
+            with open(os.path.join(self.data_dir, pre_compute_file_name), "rb") as meta_table:
                 meta_dict = pickle.load(meta_table)
-                data_list = meta_dict['data_list']
+                data_list = meta_dict["data_list"]
             return data_list
 
         print("start generate data_list")
-        with open(os.path.join(self.data_dir, data_fn), 'r') as f:
+        with open(os.path.join(self.data_dir, data_fn), "r") as f:
             mesh_list = [line.strip() for line in f.readlines()]
             if self.category:
-                mesh_list = [
-                    line for line in mesh_list
-                    if self.category in line.split('/')
-                ]
+                mesh_list = [line for line in mesh_list if self.category in line.split("/")]
         data_list = []
         for mesh in mesh_list:
             mesh_dir = os.path.join(self.data_dir, mesh)
             if not os.path.isdir(mesh_dir):
-                print(f'{mesh} does not exist')
+                print(f"{mesh} does not exist")
                 continue
             fracs = os.listdir(mesh_dir)
             fracs.sort()
             for frac in fracs:
                 # we take both fractures and modes for training
-                if 'fractured' not in frac and 'mode' not in frac:
+                if "fractured" not in frac and "mode" not in frac:
                     continue
                 frac = os.path.join(mesh, frac)
                 pieces = os.listdir(os.path.join(self.data_dir, frac))
@@ -116,9 +108,9 @@ class AllPieceMatchingDataset(Dataset):
                     data_list.append(frac)
         print("finish generation, start saving")
         meta_dict = {
-            'data_list': data_list,
+            "data_list": data_list,
         }
-        with open(os.path.join(self.data_dir, pre_compute_file_name), 'wb') as meta_table:
+        with open(os.path.join(self.data_dir, pre_compute_file_name), "wb") as meta_table:
             pickle.dump(meta_dict, meta_table, protocol=pickle.HIGHEST_PROTOCOL)
         return data_list
 
@@ -135,9 +127,9 @@ class AllPieceMatchingDataset(Dataset):
         normal: [N, 3]
         """
 
-        if self.rot_range > 0.:
-            rot_euler = (np.random.rand(3) - 0.5) * 2. * self.rot_range
-            rot_mat = R.from_euler('xyz', rot_euler, degrees=True).as_matrix()
+        if self.rot_range > 0.0:
+            rot_euler = (np.random.rand(3) - 0.5) * 2.0 * self.rot_range
+            rot_mat = R.from_euler("xyz", rot_euler, degrees=True).as_matrix()
         else:
             rot_mat = R.random().as_matrix()
         pc = (rot_mat @ pc.T).T
@@ -161,11 +153,11 @@ class AllPieceMatchingDataset(Dataset):
             pad_size = self.max_num_part
         data = np.array(data)
         if len(data.shape) > 1:
-            pad_shape = (pad_size, ) + tuple(data.shape[1:])
+            pad_shape = (pad_size,) + tuple(data.shape[1:])
         else:
-            pad_shape = (pad_size, )
+            pad_shape = (pad_size,)
         pad_data = np.zeros(pad_shape, dtype=data.dtype)
-        pad_data[:data.shape[0]] = data
+        pad_data[: data.shape[0]] = data
         return pad_data
 
     @staticmethod
@@ -176,9 +168,9 @@ class AllPieceMatchingDataset(Dataset):
         return np.array(nps, dtype=np.int64)
 
     def sample_reweighted_points_by_areas(self, areas):
-        if self.min_part_point <= 1:
-            return self.sample_points_by_areas(areas, self.num_points)
         nps = self.sample_points_by_areas(areas, self.num_points)
+        if self.min_part_point <= 1:
+            return nps
         delta = 0
         for i in range(len(nps)):
             if nps[i] < self.min_part_point:
@@ -207,17 +199,17 @@ class AllPieceMatchingDataset(Dataset):
 
         # read mesh and sample points
         meshes = [
-            trimesh.load(os.path.join(data_folder, mesh_file), force='mesh')
+            trimesh.load(os.path.join(data_folder, mesh_file), force="mesh")
             for mesh_file in mesh_files
         ]
 
         areas = [mesh.area for mesh in meshes]
         areas = np.array(areas)
         pcs, piece_id, nps = [], [], []
-        if self.sample_by == 'area':
+        if self.sample_by == "area":
             nps = self.sample_reweighted_points_by_areas(areas)
         else:
-            raise NotImplementedError(f'Must sample by area')
+            raise NotImplementedError(f"Must sample by area")
 
         for i, (mesh) in enumerate(meshes):
             num_points = nps[i]
@@ -248,41 +240,41 @@ class AllPieceMatchingDataset(Dataset):
 
         cur_pts = np.concatenate(cur_pts).astype(np.float32)  # [N_sum, 3]
         cur_pts_gt = np.concatenate(cur_pts_gt).astype(np.float32)  # [N_sum, 3]
-        cur_quat = self._pad_data(np.stack(cur_quat, axis=0), self.max_num_part).astype(np.float32)  # [P, 4]
+        cur_quat = self._pad_data(np.stack(cur_quat, axis=0), self.max_num_part).astype(np.float32) # [P, 4]
         cur_trans = self._pad_data(np.stack(cur_trans, axis=0), self.max_num_part).astype(np.float32)  # [P, 3]
         n_pcs = self._pad_data(np.array(nps), self.max_num_part).astype(np.int64)  # [P]
-        # print("cur_pts", cur_pts.shape)
-        valids = np.zeros((self.max_num_part), dtype=np.float32)
-        valids[:num_parts] = 1.
+        valids = np.zeros(self.max_num_part, dtype=np.float32)
+        valids[:num_parts] = 1.0
         threshold = 1 / np.sqrt(self.num_points)
         label_thresholds = 2 * threshold * np.sqrt(areas)[piece_id[:, 0]]
         """
         data_dict = {
             'part_pcs', 'gt_pcs': [P, N, 3], or [N_sum, 3], The points sampled from each part.
-            'n_pcs': P, number of points in each piece
-            'part_trans': P x 3, Translation vector
-            'part_quat': P x 4, Rotation as quaternion.
             'part_valids': P, 1 for shape parts, 0 for padded zeros.
+            'part_quat': P x 4, Rotation as quaternion.
+            'part_trans': P x 3, Translation vector
+            'n_pcs': P, number of points in each piece.
             'data_id': int, ID of the data.
+            'critical_label_threshold': thresholds for calc ground truth label
         }
         """
-        data_dict = {'part_pcs': cur_pts,
-                     'part_valids': valids,
-                     'part_quat': cur_quat,
-                     'part_trans': cur_trans,
-                     'gt_pcs': cur_pts_gt,
-                     'n_pcs': n_pcs,
-                     'data_id': index,
-                     'critical_label_thresholds': label_thresholds,  # NUM_SAMPLES
-                     }
+        data_dict = {
+            "part_pcs": cur_pts,
+            "gt_pcs": cur_pts_gt,
+            "part_valids": valids,
+            "part_quat": cur_quat,
+            "part_trans": cur_trans,
+            "n_pcs": n_pcs,
+            "data_id": index,
+            "critical_label_thresholds": label_thresholds,  # NUM_SAMPLES
+        }
         return data_dict
 
 
 def build_all_piece_matching_dataloader(cfg):
-
     data_dict = dict(
         data_dir=cfg.DATA.DATA_DIR,
-        data_fn=cfg.DATA.DATA_FN.format('train'),
+        data_fn=cfg.DATA.DATA_FN.format("train"),
         data_keys=cfg.DATA.DATA_KEYS,
         category=cfg.DATA.CATEGORY,
         num_points=cfg.DATA.NUM_PC_POINTS,
@@ -291,10 +283,8 @@ def build_all_piece_matching_dataloader(cfg):
         shuffle_parts=cfg.DATA.SHUFFLE_PARTS,
         rot_range=cfg.DATA.ROT_RANGE,
         overfit=cfg.DATA.OVERFIT,
-
         sample_by=cfg.DATA.SAMPLE_BY,
         min_part_point=cfg.DATA.MIN_PART_POINT,
-
         length=cfg.DATA.LENGTH * cfg.BATCH_SIZE,
     )
     train_set = AllPieceMatchingDataset(**data_dict)
@@ -308,9 +298,9 @@ def build_all_piece_matching_dataloader(cfg):
         persistent_workers=(cfg.NUM_WORKERS > 0),
     )
 
-    data_dict['data_fn'] = cfg.DATA.DATA_FN.format('val')
-    data_dict['shuffle_parts'] = False
-    data_dict['length'] = cfg.DATA.TEST_LENGTH
+    data_dict["data_fn"] = cfg.DATA.DATA_FN.format("val")
+    data_dict["shuffle_parts"] = False
+    data_dict["length"] = cfg.DATA.TEST_LENGTH
 
     val_set = AllPieceMatchingDataset(**data_dict)
     val_loader = DataLoader(
@@ -320,57 +310,6 @@ def build_all_piece_matching_dataloader(cfg):
         num_workers=cfg.NUM_WORKERS,
         pin_memory=True,
         drop_last=False,
-        persistent_workers=(cfg.NUM_WORKERS > 0),
-    )
-    return train_loader, val_loader
-
-
-def build_all_piece_matching_kpconv_dataloader(cfg):
-
-    data_dict = dict(
-        data_dir=cfg.DATA.DATA_DIR,
-        data_fn=cfg.DATA.DATA_FN.format('train'),
-        data_keys=cfg.DATA.DATA_KEYS,
-        category=cfg.DATA.CATEGORY,
-        num_points=cfg.DATA.NUM_PC_POINTS,
-        min_num_part=cfg.DATA.MIN_NUM_PART,
-        max_num_part=cfg.DATA.MAX_NUM_PART,
-        shuffle_parts=cfg.DATA.SHUFFLE_PARTS,
-        rot_range=cfg.DATA.ROT_RANGE,
-        overfit=cfg.DATA.OVERFIT,
-
-        sample_by=cfg.DATA.SAMPLE_BY,
-        min_part_point=cfg.DATA.MIN_PART_POINT,
-
-        length=cfg.DATA.LENGTH * cfg.BATCH_SIZE,
-    )
-    train_set = AllPieceMatchingDataset(**data_dict)
-    neighborhood_limits = calibrate_neighbors(train_set, cfg.MODEL.KPCONV, collate_fn=collate_fn_kpconv)
-    print("neighborhood:", neighborhood_limits)
-
-    train_loader = DataLoader(
-        dataset=train_set,
-        batch_size=cfg.BATCH_SIZE,
-        shuffle=True,
-        num_workers=cfg.NUM_WORKERS,
-        pin_memory=True,
-        drop_last=True,
-        collate_fn=partial(collate_fn_kpconv, config=cfg.MODEL.KPCONV, neighborhood_limits=neighborhood_limits),
-        persistent_workers=(cfg.NUM_WORKERS > 0),
-    )
-
-    data_dict['data_fn'] = cfg.DATA.DATA_FN.format('val')
-    data_dict['shuffle_parts'] = False
-    data_dict['length'] = cfg.DATA.TEST_LENGTH
-    val_set = AllPieceMatchingDataset(**data_dict)
-    val_loader = DataLoader(
-        dataset=val_set,
-        batch_size=cfg.BATCH_SIZE * 2,
-        shuffle=False,
-        num_workers=cfg.NUM_WORKERS,
-        pin_memory=True,
-        drop_last=False,
-        collate_fn=partial(collate_fn_kpconv, config=cfg.MODEL.KPCONV, neighborhood_limits=neighborhood_limits),
         persistent_workers=(cfg.NUM_WORKERS > 0),
     )
     return train_loader, val_loader
