@@ -30,7 +30,7 @@ class AllPieceMatchingDataset(Dataset):
             length=-1,
             sample_by="point",
             min_part_point=30,
-            fracture_threshold_cfg=None,
+            fracture_label_threshold=0.025,
     ):
         # store parameters
         self.category = category if category.lower() != "all" else ""
@@ -38,7 +38,7 @@ class AllPieceMatchingDataset(Dataset):
         self.num_points = num_points
         self.min_num_part = min_num_part
         self.max_num_part = max_num_part  # ignore shapes with more parts
-        self.min_part_point = min_part_point # ensure that each piece has at least # points
+        self.min_part_point = min_part_point  # ensure that each piece has at least # points
         self.shuffle_parts = shuffle_parts  # shuffle part orders
         self.rot_range = rot_range  # rotation range in degree
 
@@ -63,13 +63,7 @@ class AllPieceMatchingDataset(Dataset):
         else:
             self.length = len(self.data_list)
 
-        if fracture_threshold_cfg is None:
-            self.fracture_threshold_cfg = {
-                "p2p_threshold": 0.01,
-                "bary_threshold": 0.65,
-            }
-        else:
-            self.fracture_threshold_cfg = fracture_threshold_cfg
+        self.fracture_label_threshold = fracture_label_threshold
 
     def __len__(self):
         return self.length
@@ -245,8 +239,10 @@ class AllPieceMatchingDataset(Dataset):
         n_pcs = self._pad_data(np.array(nps), self.max_num_part).astype(np.int64)  # [P]
         valids = np.zeros(self.max_num_part, dtype=np.float32)
         valids[:num_parts] = 1.0
-        threshold = 1 / np.sqrt(self.num_points)
-        label_thresholds = 2 * threshold * np.sqrt(areas)[piece_id[:, 0]]
+        # soft threshold, parameter not tuned.
+        # threshold = 1 / np.sqrt(self.num_points)
+        # label_thresholds = 2 * threshold * np.sqrt(areas)[piece_id[:, 0]]
+        label_thresholds = np.ones([self.num_points], dtype=np.float32) * self.fracture_label_threshold  # [N_sum]
         """
         data_dict = {
             'part_pcs', 'gt_pcs': [P, N, 3], or [N_sum, 3], The points sampled from each part.
@@ -286,6 +282,7 @@ def build_all_piece_matching_dataloader(cfg):
         sample_by=cfg.DATA.SAMPLE_BY,
         min_part_point=cfg.DATA.MIN_PART_POINT,
         length=cfg.DATA.LENGTH * cfg.BATCH_SIZE,
+        fracture_label_threshold=cfg.DATA.FRACTURE_LABEL_THRESHOLD,
     )
     train_set = AllPieceMatchingDataset(**data_dict)
     train_loader = DataLoader(

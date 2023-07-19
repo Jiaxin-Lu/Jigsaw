@@ -1,6 +1,8 @@
 import os
+import random
 from datetime import datetime
 
+import numpy as np
 import pytorch_lightning as pl
 import torch
 from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
@@ -22,6 +24,7 @@ def train_model(cfg):
     # The result folder is cfg.OUTPUT_PATH
     # The model save folder is cfg.MODEL_SAVE_PATH
     model_save_path = cfg.MODEL_SAVE_PATH
+    output_path = cfg.OUTPUT_PATH
 
     if cfg.LOG_FILE_NAME is not None and len(cfg.LOG_FILE_NAME) > 0:
         logger_suffix = cfg.LOG_FILE_NAME
@@ -30,12 +33,20 @@ def train_model(cfg):
     logger_name = f"{cfg.MODEL_NAME}_{logger_suffix}"
     logger_id = None
 
+    logger = WandbLogger(
+        project=cfg.PROJECT,
+        name=logger_name,
+        id=logger_id,
+        save_dir=output_path,
+    )
+
     # configure callbacks
     checkpoint_callback = ModelCheckpoint(
         dirpath=model_save_path,
         filename="model_{epoch:03d}",
         monitor=cfg.CALLBACK.CHECKPOINT_MONITOR,
-        save_top_k=-1,
+        save_top_k=10,
+        # This might miss some checkpoints, I would set -1 if the storage space is large enough.
         mode=cfg.CALLBACK.CHECKPOINT_MODE,
         save_last=True,
         save_on_train_epoch_end=True,
@@ -44,13 +55,6 @@ def train_model(cfg):
         LearningRateMonitor("epoch"),
         checkpoint_callback,
     ]
-
-    logger = WandbLogger(
-        project=cfg.PROJECT,
-        name=logger_name,
-        id=logger_id,
-        save_dir=model_save_path,
-    )
 
     all_gpus = list(cfg.GPUS)
     trainer = pl.Trainer(
@@ -89,9 +93,6 @@ def train_model(cfg):
             key=lambda x: os.path.getmtime(os.path.join(model_save_path, x)),
         )
         last_ckp = ckp_files[-1]
-        for ckp in ckp_files:
-            if "last" in ckp:
-                last_ckp = ckp
         print(f"INFO: automatically detect checkpoint {last_ckp}")
         ckp_path = os.path.join(model_save_path, last_ckp)
     else:
@@ -111,7 +112,7 @@ if __name__ == "__main__":
 
     args = parse_args("Jigsaw")
 
-    torch.manual_seed(cfg.RANDOM_SEED)
+    pl.seed_everything(cfg.RANDOM_SEED)
 
     parallel_strategy = cfg.PARALLEL_STRATEGY
     if len(cfg.GPUS) > 1 and parallel_strategy == "dp":

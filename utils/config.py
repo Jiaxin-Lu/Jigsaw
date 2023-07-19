@@ -2,8 +2,6 @@ import importlib
 
 from easydict import EasyDict as edict
 
-import dataset
-
 __C = edict()
 cfg = __C
 
@@ -98,18 +96,6 @@ __C.CALLBACK.CHECKPOINT_MODE = "min"
 # Loss config
 #
 __C.LOSS = edict()
-__C.LOSS.NOISE_DIM = 0  # stochastic PoseRegressor
-__C.LOSS.SAMPLE_ITER = 5  # MoN loss sampling
-
-__C.LOSS.TRANS_LOSS_W = 1.0
-__C.LOSS.ROT_PT_CD_LOSS_W = 10.0
-__C.LOSS.TRANSFORM_PT_CD_LOSS_W = 10.0
-# cosine regression loss on rotation
-__C.LOSS.USE_ROT_LOSS = True
-__C.LOSS.ROT_LOSS_W = 0.2
-# per-point l2 loss between rotated part point clouds
-__C.LOSS.USE_ROT_PT_L2_LOSS = True
-__C.LOSS.ROT_PT_L2_LOSS_W = 1.0
 
 #
 # Evaluation options
@@ -118,7 +104,7 @@ __C.LOSS.ROT_PT_L2_LOSS_W = 1.0
 __C.EVAL = edict()
 
 # Evaluation epoch number
-__C.EVAL.EPOCH = 50
+__C.EVAL.EPOCH = 250
 
 # Evaluation loss
 __C.EVAL.LOSS = ""
@@ -207,7 +193,8 @@ def cfg_from_file(filename):
         __C["MODEL"] = mod.get_model_cfg()
 
     if "DATASET" in yaml_cfg and yaml_cfg.DATASET is not None:
-        __C["DATA"] = dataset.dataset_cfg[yaml_cfg.DATASET.upper()]
+        dataset = importlib.import_module("dataset")
+        __C["DATA"] = dataset.dataset_cfg[yaml_cfg.DATASET.split(".")[0].upper()]
 
     _merge_a_into_b(yaml_cfg, __C)
 

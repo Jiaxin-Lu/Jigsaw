@@ -9,7 +9,10 @@ __C.JIGSAW.ROT_TYPE = 'rmat'
 __C.JIGSAW.PC_FEAT_DIM = 128
 __C.JIGSAW.AFF_FEAT_DIM = 512
 __C.JIGSAW.AFFINITY = 'aff_dual'
-__C.JIGSAW.ENCODER = 'pointnet2.msg.dynamic'
+__C.JIGSAW.ENCODER = 'pointnet2_pt.msg.dynamic'
+__C.JIGSAW.TEST_S_MASK = True
+__C.JIGSAW.PC_CLS_METHOD = 'binary'  # ['binary', 'multi']
+__C.JIGSAW.PC_NUM_CLS = 2
 
 __C.JIGSAW.SINKHORN_MAXITER = 20
 __C.JIGSAW.SINKHORN_TAU = 0.05

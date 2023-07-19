@@ -19,9 +19,8 @@ class MatchingBaseModel(pytorch_lightning.LightningModule):
         self.save_hyperparameters()
         self._setup()
         self.test_results = None
-        if cfg.STATS == '':
-            self.stats = None
-        else:
+        if len(cfg.STATS):
+            os.makedirs(cfg.STATS, exist_ok=True)
             self.stats = dict()
             self.stats['part_acc'] = []
             self.stats['chamfer_distance'] = []
@@ -33,6 +32,8 @@ class MatchingBaseModel(pytorch_lightning.LightningModule):
             self.stats['pred_rot'] = []
             self.stats['gt_rot'] = []
             self.stats['part_valids'] = []
+        else:
+            self.stats = None
 
     def _setup(self):
         self.max_num_part = self.cfg.DATA.MAX_NUM_PART
@@ -103,7 +104,7 @@ class MatchingBaseModel(pytorch_lightning.LightningModule):
         self.test_results = avg_loss
         self.log_dict(avg_loss, sync_dist=True)
         if self.cfg.STATS is not None:
-            with open(os.path.join(self.cfg.STATS, 'stats'), 'wb') as f:
+            with open(os.path.join(self.cfg.STATS, 'saved_stats.pk'), 'wb') as f:
                 pickle.dump(self.stats, f)
 
     @torch.no_grad()

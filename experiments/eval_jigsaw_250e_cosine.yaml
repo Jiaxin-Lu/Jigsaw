@@ -1,0 +1,26 @@
+MODEL_NAME: jigsaw_cls_binary_th0.025_4x4_128_512_cosine_250e_everyday
+MODULE: jigsaw
+
+PROJECT: eval_jigsaw
+
+DATASET: breaking_bad.all_piece_matching
+
+GPUS: [0]
+BATCH_SIZE: 8
+NUM_WORKERS: 8
+
+DATA:
+  SUBSET: everyday
+  DATA_FN: 'everyday.{}.txt'
+  MAX_NUM_PART: 20
+  NUM_PC_POINTS: 5000
+  SAMPLE_BY: area
+  MIN_PART_POINT: 30
+  FRACTURE_LABEL_THRESHOLD: 0.025
+
+MODEL:
+  PC_CLS_METHOD: binary
+
+WEIGHT_FILE: "./results/jigsaw_cls_binary_th0.025_4x4_128_512_cosine_250e_everyday/model_save/model_epoch=249.ckpt"
+STATS: './results/jigsaw_cls_binary_th0.025_4x4_128_512_cosine_250e_everyday/stats/eval_model_249'
+

@@ -25,6 +25,9 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
             f"initial: self.w_cls_loss {self.w_cls_loss}, self.w_mat_loss"
             f" {self.w_mat_loss}, self.w_rig_loss {self.w_rig_loss}"
         )
+        self.pc_cls_method = self.cfg.MODEL.PC_CLS_METHOD.lower()
+        print(f"self.pc_cls_method: {self.pc_cls_method}")
+        self.num_classes = self.cfg.MODEL.PC_NUM_CLS
         self.encoder = self._init_encoder()
         self.affinity_layer = self._init_affinity_layer()
         self.sinkhorn = self._init_sinkhorn()
@@ -43,10 +46,7 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
             print("No mask for s in test")
 
     def _init_encoder(self):
-        if self.cfg.MODEL.USE_NORMAL:
-            in_feat_dim = 6
-        else:
-            in_feat_dim = 3
+        in_feat_dim = 3
         encoder = build_encoder(
             self.cfg.MODEL.ENCODER,
             feat_dim=self.pc_feat_dim,
@@ -64,11 +64,20 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
         return affinity_extractor
 
     def _init_classifier(self):
-        classifier = nn.Sequential(
-            nn.BatchNorm1d(self.pc_feat_dim),
-            nn.ReLU(inplace=True),
-            nn.Linear(self.pc_feat_dim, 1),
-        )
+        if self.pc_cls_method == 'binary':
+            classifier = nn.Sequential(
+                nn.BatchNorm1d(self.pc_feat_dim),
+                nn.ReLU(inplace=True),
+                nn.Conv1d(self.pc_feat_dim, 1, 1),
+            )
+        elif self.pc_cls_method == 'multi':
+            classifier = nn.Sequential(
+                nn.BatchNorm1d(self.pc_feat_dim),
+                nn.ReLU(inplace=True),
+                nn.Conv1d(self.pc_feat_dim, self.num_classes, 1)
+            )
+        else:
+            raise NotImplementedError(f"{self.pc_cls_method} not implemented for classifier")
         return classifier
 
     def _init_affinity_layer(self):
@@ -144,14 +153,21 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
                     part_feats = layer(part_feats)
             data_dict.update({"part_feats": part_feats})
         out_dict = dict()
-        feat = part_feats
-        cls_logits = self.pc_classifier(feat)
-        cls_logits = fun.sigmoid(cls_logits)
-        cls_pred = (cls_logits > 0.5).to(torch.int64).detach()
-        cls_pred = cls_pred.reshape(B, N_sum)
+        feat = part_feats.transpose(1, 2)
+        if self.pc_cls_method == 'binary':
+            cls_logits = self.pc_classifier(feat)
+            cls_logits = cls_logits.transpose(1, 2)
+            cls_logits = torch.sigmoid(cls_logits)
+            cls_pred = (cls_logits > 0.5).to(torch.int64).detach()
+            cls_pred = cls_pred.reshape(B, N_sum)
+        else:
+            cls_logits = self.pc_classifier(feat)
+            cls_logits = fun.log_softmax(cls_logits, dim=1)
+            cls_logits = cls_logits.permute(0, 2, 1).contiguous()
+            cls_pred = torch.argmax(cls_logits.reshape(-1, self.num_classes), dim=-1).detach().reshape(B, N_sum)
         out_dict.update(
             {
-                "cls_logits": cls_logits,  # [B, N_sum, 2]
+                "cls_logits": cls_logits,  # [B, N_sum, 1] or [B, N_sum, 2]
                 "cls_pred": cls_pred,  # [B, N_sum]
                 "batch_size": B,
             }
@@ -272,8 +288,12 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
 
         # first calc segmentation
         cls_gt = critical_label.reshape(-1)
-        cls_logits = cls_logits.reshape(-1)
-        cls_loss = fun.binary_cross_entropy(cls_logits, cls_gt.to(torch.float32))
+        if self.pc_cls_method == 'binary':
+            cls_logits = cls_logits.reshape(-1)
+            cls_loss = fun.binary_cross_entropy(cls_logits, cls_gt.to(torch.float32))
+        else:
+            cls_logits = cls_logits.reshape(-1, self.num_classes)
+            cls_loss = fun.nll_loss(cls_logits, cls_gt)
 
         cls_pred = cls_pred.reshape(-1)
 
@@ -305,8 +325,8 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
         with torch.no_grad():
             gt_critical_pcs = self._get_critical_feats_BNF_from_label(
                 gt_pcs, n_critical_pcs_sum, critical_label, B, N_, 3
-            )
-            gt_critical_pcs_dist = square_distance(gt_critical_pcs, gt_critical_pcs)
+            )  # [B, N_, 3]
+            gt_critical_pcs_dist = square_distance(gt_critical_pcs, gt_critical_pcs)  # [B, N_, N_]
             mask = out_dict.get("s_mask", None)
             neg_mask = out_dict.get("s_neg_mask", None)
             if neg_mask is None:

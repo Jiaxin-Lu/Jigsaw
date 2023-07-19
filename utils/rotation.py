@@ -3,6 +3,9 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+from pytorch3d.transforms import matrix_to_quaternion, matrix_to_axis_angle, \
+    quaternion_to_matrix, quaternion_to_axis_angle, \
+    axis_angle_to_quaternion, axis_angle_to_matrix
 from pytorch3d.transforms import quaternion_multiply
 from pytorch3d.transforms import rotation_6d_to_matrix as rot6d_to_matrix
 

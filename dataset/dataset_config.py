@@ -8,8 +8,8 @@ dataset_cfg = __C
 
 __C.BREAKING_BAD = edict()
 __C.BREAKING_BAD.DATA_DIR = "data/breaking_bad"
-__C.BREAKING_BAD.DATA_FN = (  # this would vary due to different subset, use artifact as default
-    "artifact.{}.txt"
+__C.BREAKING_BAD.DATA_FN = (  # this would vary due to different subset, use everyday as default
+    "everyday.{}.txt"
 )
 __C.BREAKING_BAD.DATA_KEYS = ("part_ids",)
 
@@ -39,28 +39,21 @@ __C.BREAKING_BAD.ALL_CATEGORY = [
 ]  # Only used for everyday
 
 __C.BREAKING_BAD.ROT_RANGE = -1.0  # rotation range for curriculum learning
-__C.BREAKING_BAD.NUM_PC_POINTS = 1000  # points per part
+__C.BREAKING_BAD.NUM_PC_POINTS = 5000  # points per part
 __C.BREAKING_BAD.MIN_PART_POINT = (
     30  # if sampled by area, want to make sure all piece have >30 points
 )
 __C.BREAKING_BAD.MIN_NUM_PART = 2
 __C.BREAKING_BAD.MAX_NUM_PART = 20
 __C.BREAKING_BAD.SHUFFLE_PARTS = False
-__C.BREAKING_BAD.SAMPLE_BY = "num_points"
-
-__C.BREAKING_BAD.NUM_SPARSE_POINTS = 100  # points per part after sampling
-__C.BREAKING_BAD.POINT_LIMIT = 30000
-__C.BREAKING_BAD.USE_AUGMENTATION = 1
-__C.BREAKING_BAD.AUGMENTATION_NOISE = 0.005
-__C.BREAKING_BAD.AUGMENTATION_ROTATION = 1.0
+__C.BREAKING_BAD.SAMPLE_BY = "area"
 
 __C.BREAKING_BAD.RESAMPLE_RATIO = -1.0
 __C.BREAKING_BAD.LENGTH = -1
 __C.BREAKING_BAD.TEST_LENGTH = -1
 __C.BREAKING_BAD.OVERFIT = -1
-__C.BREAKING_BAD.LABEL_THRESHOLD = 10
-__C.BREAKING_BAD.P2P_THRESHOLD = 0.02
-__C.BREAKING_BAD.REQUIRE_FRACTURE_POINTS = -1
+
+__C.BREAKING_BAD.FRACTURE_LABEL_THRESHOLD = 0.025
 
 __C.BREAKING_BAD.COLORS = [
     [0, 204, 0],

@@ -1,0 +1,35 @@
+MODEL_NAME: jigsaw_cls_binary_th0.025_4x4_128_512_cosine_250e_everyday
+MODULE: jigsaw
+
+PROJECT: jigsaw
+
+DATASET: breaking_bad.all_piece_matching
+
+GPUS: [0, 1, 2, 3]
+BATCH_SIZE: 4
+NUM_WORKERS: 4
+
+TRAIN:
+  NUM_EPOCHS: 250
+  LR: 0.001
+  WEIGHT_DECAY: 0.
+  WARMUP_RATIO: 0.
+  LR_SCHEDULER: 'cosine'
+  LR_DECAY: 100.
+  VAL_EVERY: 5
+
+CALLBACK:
+  CHECKPOINT_MONITOR: val/mat_f1
+  CHECKPOINT_MODE: max
+
+DATA:
+  SUBSET: everyday
+  DATA_FN: 'everyday.{}.txt'
+  MAX_NUM_PART: 20
+  NUM_PC_POINTS: 5000
+  SAMPLE_BY: area
+  MIN_PART_POINT: 30
+  FRACTURE_LABEL_THRESHOLD: 0.025
+
+MODEL:
+  PC_CLS_METHOD: binary
