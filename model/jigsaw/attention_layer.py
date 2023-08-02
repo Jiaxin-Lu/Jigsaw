@@ -157,7 +157,10 @@ def knn_and_group(x, xyz, k=10, new_xyz=None, batch_x=None, with_xyz=False):
 
 
 class PointTransformerLayer(nn.Module):
-    """A single Point transformer module."""
+    """A single Point transformer module.
+    Modified from:
+    https://github.com/Pointcept/Pointcept/blob/864b9c4729c39a95c0a4e5a9f4087f5feafa5df4/pointcept/models/point_transformer/point_transformer_seg.py
+    """
 
     def __init__(self, in_feat, out_feat, n_heads=8, nsampmle=16):
         super(PointTransformerLayer, self).__init__()
@@ -223,6 +226,7 @@ class PointTransformerLayer(nn.Module):
 
 
 if __name__ == "__main__":
+    # a minimum test example
     pos = torch.randn(12, 3)
     x = torch.randn(12, 6)
     b = torch.tensor([4, 3, 5], dtype=torch.long).reshape(3, 1)
@@ -233,7 +237,7 @@ if __name__ == "__main__":
     x_pnf = pnf_layer(p=pos, x=x, o=b)
     print(x_pnf.shape)
 
-    ca_layer = CrossAttentionLayer(d_in=6, n_head=2)
+    cross_attention_layer = CrossAttentionLayer(d_in=6, n_head=2)
     x = torch.randn(3, 4, 6)
-    x_ca = ca_layer(x)
+    x_ca = cross_attention_layer(x)
     print(x_ca.shape)

@@ -19,6 +19,8 @@ def sinkhorn(
 ) -> Tensor:
     """
     Pytorch implementation of Sinkhorn algorithm
+    Adopted from:
+    https://github.com/Thinklab-SJTU/pygmtools/blob/1c331bb2c47af4f0c1e5f078fd43af1ea5b5f449/pygmtools/pytorch_backend.py
     """
     batch_size = s.shape[0]
 

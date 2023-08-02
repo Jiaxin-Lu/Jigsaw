@@ -49,7 +49,6 @@ def train_model(cfg):
         # This might miss some checkpoints, I would set -1 if the storage space is large enough.
         mode=cfg.CALLBACK.CHECKPOINT_MODE,
         save_last=True,
-        save_on_train_epoch_end=True,
     )
     callbacks = [
         LearningRateMonitor("epoch"),
@@ -57,20 +56,26 @@ def train_model(cfg):
     ]
 
     all_gpus = list(cfg.GPUS)
-    trainer = pl.Trainer(
+
+    training_log_dict = dict(
         logger=logger,
-        accelerator="gpu",
-        devices=len(all_gpus),
-        strategy=parallel_strategy if len(all_gpus) > 1 else None,
+        accelerator='gpu',
+        devices=all_gpus,
         max_epochs=cfg.TRAIN.NUM_EPOCHS,
         callbacks=callbacks,
-        precision=16 if cfg.FP16 else 32,
         benchmark=cfg.CUDNN,
         gradient_clip_val=cfg.TRAIN.CLIP_GRAD,
         check_val_every_n_epoch=cfg.TRAIN.VAL_EVERY,
         log_every_n_steps=10,
-        profiler="simple",  # training time bottleneck analysis
+        profiler='simple',
+        detect_anomaly=True,
     )
+    if len(all_gpus) > 1:
+        training_log_dict.update({
+            "strategy": parallel_strategy
+        })
+
+    trainer = pl.Trainer(**training_log_dict)
 
     # automatically detect existing checkpoints
     ckp_files = os.listdir(model_save_path)

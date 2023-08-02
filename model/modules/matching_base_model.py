@@ -67,7 +67,7 @@ class MatchingBaseModel(pytorch_lightning.LightningModule):
         batch_sizes = func([output.pop('batch_size') for output in outputs
                             ]).type_as(outputs[0]['loss'])  # [num_batches]
         losses = {
-            f'val/{k}': torch.stack([output[k] for output in outputs])
+            f'val/{k}': torch.stack([output[k] for output in outputs]).reshape(-1)
             for k in outputs[0].keys()
         }  # each is [num_batches], stacked avg loss in each batch
         avg_loss = {

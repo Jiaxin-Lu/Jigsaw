@@ -18,6 +18,9 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
 
         self.num_classes = 2
         self.aff_feat_dim = self.cfg.MODEL.AFF_FEAT_DIM
+        assert self.aff_feat_dim % 2 == 0, "The affinity feature dimension must be even!"
+        self.half_aff_feat_dim = self.aff_feat_dim // 2
+
         self.w_cls_loss = self.cfg.MODEL.LOSS.w_cls_loss
         self.w_mat_loss = self.cfg.MODEL.LOSS.w_mat_loss
         self.w_rig_loss = self.cfg.MODEL.LOSS.w_rig_loss
@@ -25,13 +28,15 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
             f"initial: self.w_cls_loss {self.w_cls_loss}, self.w_mat_loss"
             f" {self.w_mat_loss}, self.w_rig_loss {self.w_rig_loss}"
         )
+
         self.pc_cls_method = self.cfg.MODEL.PC_CLS_METHOD.lower()
         print(f"self.pc_cls_method: {self.pc_cls_method}")
+        # options: ['binary', 'multi'].
+        # We also provide a method which treats the segmentation as a multi-class classification problem.
         self.num_classes = self.cfg.MODEL.PC_NUM_CLS
         self.encoder = self._init_encoder()
         self.affinity_layer = self._init_affinity_layer()
         self.sinkhorn = self._init_sinkhorn()
-        self.half_aff_feat_dim = self.aff_feat_dim // 2
         self.pc_classifier = self._init_classifier()
         self.affinity_extractor = self._init_affinity_extractor()
 
@@ -39,11 +44,13 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
             in_feat=self.pc_feat_dim, out_feat=self.pc_feat_dim,
             n_heads=self.cfg.MODEL.TF_NUM_HEADS, nsampmle=self.cfg.MODEL.TF_NUM_SAMPLE,
         )
-        self.tf_cross1 = CrossAttentionLayer(d_in=self.pc_feat_dim, n_head=self.cfg.MODEL.TF_NUM_HEADS)
+        self.tf_cross1 = CrossAttentionLayer(d_in=self.pc_feat_dim,
+                                             n_head=self.cfg.MODEL.TF_NUM_HEADS,)
         self.tf_layers = [("self", self.tf_self1), ("cross", self.tf_cross1)]
 
         if not self.cfg.MODEL.TEST_S_MASK:
-            print("No mask for s in test")
+            # default: True. The mask is not needed based on the design of the primal-dual descriptor.
+            print("No mask for s in test.")
 
     def _init_encoder(self):
         in_feat_dim = 3
@@ -113,13 +120,12 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
                 - part_pcs: [B, N_sum, 3]
                 - part_feats: [B, N_sum, F] reused or None
                 - critical_pcs_idx: [B, N'_sum]
-                - critical_pcs_pos: [L, 3] L = sum(n_critical_pcs)  [b, p, idx]
                 - n_critical_pcs: [B, P]
                 - gt_pcs: [B, N_sum, 3]
-                - part_valids: [B, P], 1 are valid parts, 0 are padded parts (not used)
+                - part_valids: [B, P], 1 are valid parts, 0 are padded parts
         :return:
             out_dict:
-                - ds_mat: [B, N', N'] differentiable matching result
+                - ds_mat: [B, N', N'] a doubly stochastic matrix, differentiable matching result
                 - perm_mat: [B, N', N'] sparse matching result
         """
         part_valids = data_dict["part_valids"]
@@ -157,8 +163,8 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
         if self.pc_cls_method == 'binary':
             cls_logits = self.pc_classifier(feat)
             cls_logits = cls_logits.transpose(1, 2)
-            cls_logits = torch.sigmoid(cls_logits)
-            cls_pred = (cls_logits > 0.5).to(torch.int64).detach()
+            cls_pred = torch.sigmoid(cls_logits.detach())
+            cls_pred = (cls_pred > 0.5).to(torch.int64)
             cls_pred = cls_pred.reshape(B, N_sum)
         else:
             cls_logits = self.pc_classifier(feat)
@@ -290,7 +296,7 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
         cls_gt = critical_label.reshape(-1)
         if self.pc_cls_method == 'binary':
             cls_logits = cls_logits.reshape(-1)
-            cls_loss = fun.binary_cross_entropy(cls_logits, cls_gt.to(torch.float32))
+            cls_loss = fun.binary_cross_entropy_with_logits(cls_logits, cls_gt.to(torch.float32))
         else:
             cls_logits = cls_logits.reshape(-1, self.num_classes)
             cls_loss = fun.nll_loss(cls_logits, cls_gt)
@@ -413,34 +419,16 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
 
         return loss_dict
 
-    def validation_epoch_end(self, outputs):
-        # avg_loss among all data
-        # we need to consider different batch_size
-        func = (
-            torch.tensor if isinstance(outputs[0]["batch_size"], int) else torch.stack
-        )
-        batch_sizes = func([output.pop("batch_size") for output in outputs]).type_as(
-            outputs[0]["loss"]
-        )  # [num_batches]
-        losses = {
-            f"val/{k}": torch.stack([output[k] for output in outputs])
-            for k in outputs[0].keys()
-        }  # each is [1], stacked avg loss in each batch
-        avg_loss = {
-            k: (v * batch_sizes).sum() / batch_sizes.sum() for k, v in losses.items()
-        }
-        self.log_dict(avg_loss, sync_dist=True)
+    def training_epoch_end(self, outputs):
         if self.w_mat_loss == 0 and self.current_epoch >= self.cfg.MODEL.LOSS.mat_epoch:
             self.w_mat_loss = 1.0
             print(
-                f"at val/cls_f1={avg_loss['val/cls_f1']},"
-                f" current_epoch={self.current_epoch}, self.w_mat_los = 1.0"
+                f"current_epoch={self.current_epoch}, self.w_mat_los = 1.0"
             )
         if self.w_rig_loss == 0 and self.current_epoch >= self.cfg.MODEL.LOSS.rig_epoch:
             self.w_rig_loss = 1.0
             print(
-                f"at val/mat_f1={avg_loss['val/mat_f1']},"
-                f" current_epoch={self.current_epoch}, self.w_rig_loss = 1.0"
+                f"current_epoch={self.current_epoch}, self.w_rig_loss = 1.0"
             )
 
     @torch.no_grad()

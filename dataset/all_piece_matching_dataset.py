@@ -9,7 +9,7 @@ from torch.utils.data import Dataset, DataLoader
 
 
 class AllPieceMatchingDataset(Dataset):
-    """Geometry part assembly dataset, with fracture surface information
+    """Geometry part assembly dataset, with fracture surface information.
 
     We follow the data prepared by Breaking Bad dataset:
         https://breaking-bad-dataset.github.io/
@@ -28,7 +28,8 @@ class AllPieceMatchingDataset(Dataset):
             rot_range=-1,
             overfit=-1,
             length=-1,
-            sample_by="point",
+
+            sample_by="area",
             min_part_point=30,
             fracture_label_threshold=0.025,
     ):
@@ -42,7 +43,8 @@ class AllPieceMatchingDataset(Dataset):
         self.shuffle_parts = shuffle_parts  # shuffle part orders
         self.rot_range = rot_range  # rotation range in degree
 
-        self.sample_by = sample_by  # ['point', 'area'] sample by fixed point number or mesh area
+        self.sample_by = sample_by
+        # ['point', 'area'] sample by fixed point number or mesh area, we only support 'area' now.
         # list of fracture folder path
         self.data_list = self._read_data(data_fn)
 
@@ -156,12 +158,16 @@ class AllPieceMatchingDataset(Dataset):
 
     @staticmethod
     def sample_points_by_areas(areas, num_points):
+        """areas: [P], num_points: N"""
         total_area = np.sum(areas)
         nps = np.ceil(areas * num_points / total_area).astype(np.int32)
         nps[np.argmax(nps)] -= np.sum(nps) - num_points
         return np.array(nps, dtype=np.int64)
 
     def sample_reweighted_points_by_areas(self, areas):
+        """ Sample points by areas, but ensures that each part has at least # points.
+        areas: [P]
+        """
         nps = self.sample_points_by_areas(areas, self.num_points)
         if self.min_part_point <= 1:
             return nps
@@ -179,7 +185,7 @@ class AllPieceMatchingDataset(Dataset):
                 delta -= nps[k] - self.min_part_point
                 nps[k] = self.min_part_point
         # simply take points from the largest parts
-        # TODO: not very elegant, could improve by resample by areas
+        # This implementation is not very elegant, could improve by resample by areas.
         return np.array(nps, dtype=np.int64)
 
     def _get_pcs(self, data_folder):
@@ -196,7 +202,6 @@ class AllPieceMatchingDataset(Dataset):
             trimesh.load(os.path.join(data_folder, mesh_file), force="mesh")
             for mesh_file in mesh_files
         ]
-
         areas = [mesh.area for mesh in meshes]
         areas = np.array(areas)
         pcs, piece_id, nps = [], [], []
@@ -216,16 +221,13 @@ class AllPieceMatchingDataset(Dataset):
 
     def __getitem__(self, index):
         pcs, piece_id, nps, areas = self._get_pcs(self.data_list[index])
-        # label = torch.tensor(self.labels_01[index]).to(torch.int)
         num_parts = len(pcs)
         cur_pts, cur_quat, cur_trans, cur_pts_gt = [], [], [], []
         for i, (pc, n_p) in enumerate(zip(pcs, nps)):
             pc_gt = pc.copy()
             pc, gt_trans = self._recenter_pc(pc)
             pc, gt_quat = self._rotate_pc(pc)
-            # print('label before shuffle', label.shape)
             pc_shuffle, pc_gt_shuffle = self._shuffle_pc(pc, pc_gt)
-            # print('label after shuffle', label_shuffle.shape)
 
             cur_pts.append(pc_shuffle)
             cur_quat.append(gt_quat)
@@ -234,7 +236,7 @@ class AllPieceMatchingDataset(Dataset):
 
         cur_pts = np.concatenate(cur_pts).astype(np.float32)  # [N_sum, 3]
         cur_pts_gt = np.concatenate(cur_pts_gt).astype(np.float32)  # [N_sum, 3]
-        cur_quat = self._pad_data(np.stack(cur_quat, axis=0), self.max_num_part).astype(np.float32) # [P, 4]
+        cur_quat = self._pad_data(np.stack(cur_quat, axis=0), self.max_num_part).astype(np.float32)  # [P, 4]
         cur_trans = self._pad_data(np.stack(cur_trans, axis=0), self.max_num_part).astype(np.float32)  # [P, 3]
         n_pcs = self._pad_data(np.array(nps), self.max_num_part).astype(np.int64)  # [P]
         valids = np.zeros(self.max_num_part, dtype=np.float32)
@@ -247,11 +249,11 @@ class AllPieceMatchingDataset(Dataset):
         data_dict = {
             'part_pcs', 'gt_pcs': [P, N, 3], or [N_sum, 3], The points sampled from each part.
             'part_valids': P, 1 for shape parts, 0 for padded zeros.
-            'part_quat': P x 4, Rotation as quaternion.
-            'part_trans': P x 3, Translation vector
-            'n_pcs': P, number of points in each piece.
+            'part_quat': [P, 4], Rotation as quaternion.
+            'part_trans': [P, 3], Translation vector.
+            'n_pcs': [P], number of points in each piece.
             'data_id': int, ID of the data.
-            'critical_label_threshold': thresholds for calc ground truth label
+            'critical_label_threshold': [N_sum] thresholds for calc ground truth label.
         }
         """
         data_dict = {
@@ -262,7 +264,7 @@ class AllPieceMatchingDataset(Dataset):
             "part_trans": cur_trans,
             "n_pcs": n_pcs,
             "data_id": index,
-            "critical_label_thresholds": label_thresholds,  # NUM_SAMPLES
+            "critical_label_thresholds": label_thresholds,
         }
         return data_dict
 

@@ -1,4 +1,4 @@
-"""Adopted from https://github.com/AnTao97/dgcnn.pytorch/blob/master/model.py"""
+"""Adopted and modified from https://github.com/AnTao97/dgcnn.pytorch/blob/master/model.py"""
 
 import torch
 import torch.nn as nn

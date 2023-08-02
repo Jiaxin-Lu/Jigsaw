@@ -6,7 +6,7 @@ import torch
 from pytorch_lightning.loggers import WandbLogger
 
 from dataset import build_dataloader
-from model import build_model, build_model_from_ckpt
+from model import build_model
 
 NOW_TIME = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
 
@@ -14,7 +14,8 @@ NOW_TIME = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
 def test_model(cfg):
     if len(cfg.GPUS) > 1:
         raise ValueError("only one GPU testing is allowed")
-    os.makedirs(cfg.STATS, exist_ok=True)
+    if len(cfg.STATS):
+        os.makedirs(cfg.STATS, exist_ok=True)
 
     # initialize dataloader
     train_loader, val_loader = build_dataloader(cfg)
@@ -44,7 +45,7 @@ def test_model(cfg):
     trainer = pl.Trainer(
         logger=logger,
         accelerator="gpu",
-        gpus=all_gpus,
+        devices=all_gpus,
         strategy="dp" if len(all_gpus) > 1 else None,
         callbacks=callbacks,
     )
@@ -73,8 +74,7 @@ def test_model(cfg):
     else:
         ckp_path = None
 
-    if cfg.WEIGHT_FILE:
-        model = build_model_from_ckpt(cfg=cfg, ckpt_path=ckp_path, strict=False)
+    model = model.load_from_checkpoint(checkpoint_path=ckp_path, strict=False)
     print("Finish Setting -----")
     trainer.test(model, val_loader)
 

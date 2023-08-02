@@ -24,6 +24,15 @@ def _valid_mean(loss_per_part, valids):
 
 
 def permutation_loss(pred_mat, gt_mat, src_ns, tgt_ns):
+    """
+    Permutation loss
+    $$L_mat = -\frac{1}{N} {\sum_{1\leq i j \leq N} x_{ij}^{gt} \log \hat{x}_{ij}^{gt} + (1-x_{ij}^{gt}) \log (1-\hat{x}_{ij}^{gt})}$$
+    @param pred_mat: [B, N_src, N_tgt]
+    @param gt_mat: [B, N_src, N_tgt]
+    @param src_ns: [B], the number of points of the source in each batch
+    @param tgt_ns: [B], the number of points of the target in each batch
+    @return: L_mat
+    """
     batch_num = pred_mat.shape[0]
 
     pred_dsmat = pred_mat.to(dtype=torch.float32)
@@ -132,10 +141,3 @@ def rigid_loss(
 
     return loss / n_sum
 
-
-def rigid_loss_gt(gt_rot, gt_trans, gt_pcs):
-    gt_rot = gt_rot.to_rmat().detach()
-    gt_trans = gt_trans.detach()
-    B, N, _ = gt_pcs.shape
-    for b in range(B):
-        pass
