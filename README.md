@@ -2,18 +2,19 @@
 
 ---
 
-This is a minimal PyTorch implementation of paper: [Jigsaw: Learning to Assemble Multiple Fractured Objects](https://arxiv.org/abs/2305.17975).
+This repository contains a minimal PyTorch implementation of the paper 
+"[Jigsaw: Learning to Assemble Multiple Fractured Objects](https://arxiv.org/abs/2305.17975)".
 
 
 ## Installation
 
 ---
 
-This repository is developed and tested with 
-Ubuntu 18.04, CUDA 11.0, Python 3.8, Pytorch 1.10.2, 
-Pytorch Lightning 1.9.1, and Pytorch Geometric 2.0.4.
+This repository has been developed and tested 
+with Ubuntu 18.04 and CUDA 11.0. 
+To set up the required environment, follow these steps:
 
-1. Create an anaconda environment `assembly`:
+1. Create a new Anaconda environment named `assembly`:
     ```shell
     conda env create -f environment.yaml
     conda activate assembly
@@ -28,10 +29,11 @@ Pytorch Lightning 1.9.1, and Pytorch Geometric 2.0.4.
 
 ---
 
-We support [Breaking Bad Dataset](https://breaking-bad-dataset.github.io/), please refer
-to the dataset website for more information about the data-processing.
+We provide support for the 
+[Breaking Bad Dataset](https://breaking-bad-dataset.github.io/).
+For more information about data processing, please refer to the dataset website.
 
-After processing the data, you shall create a folder `data` with structure like:
+After processing the data, ensure that you have a folder named `data` with the following structure:
 ```
 data
 ├── breaking_bad
@@ -39,12 +41,13 @@ data
 │   │   ├── BeerBottle
 │   │   │   ├── ...
 │   │   ├── ...
-├── everyday.train.txt
-├── everyday.val.txt
+│   ├── everyday.train.txt
+│   ├── everyday.val.txt
+│   └── ...
 └── ...
 ```
-Only `everyday` subset is necessary for training. 
-If you want to test the `artifact` and `other` subsets, the structure follows the same.
+Only the `everyday` subset is necessary for training. 
+If you want to test the `artifact` and `other` subsets, the structure should follow the same pattern.
 
 ### Run the Experiment
 
@@ -54,40 +57,45 @@ For training, run
 ```shell
 python train_matching.py --cfg path/to/your/yaml
 ```
-You shall replace `path/to/your/yaml` by path to your configuration file, e.g.
+Replace `path/to/your/yaml` with the path to your configuration file, for example:
 ```shell
 python train_matching.py --cfg experiments/jigsaw_250e_cosine.yaml
 ```
+The results will be stored to the directory `results/MODEL_NAME/`.
+
 For evaluation, run
 ```shell
 python eval_matching.py --cfg path/to/your/eval_yaml
 ```
-Default configuration files are stored in `experiments/`
-and you are welcomed to try your own configurations. 
-If you find a better yaml configuration, 
-please let us know by raising an issue or a PR,
-and we will update the benchmark!
+Default configuration files are stored in the `experiments/` directory, 
+and you are encouraged to try your own configurations. 
+If you discover a better configuration, 
+please let us know by raising an issue or a pull request, 
+and we will update the benchmark accordingly!
 
 ## Pretrained Weights
 
 ---
-
-To use the pretrained weights, first download the weight file, 
-then add
+To use the pretrained weights, 
+download the weight file and 
+add the following YAML configuration to your configuration file:
 ```yaml
 WEIGHT_FILE: path/to/your/weight_file.ckpt
 ```
-to your configuration file.
 
 ## Acknowledgement
 
 ---
 
-We would like to thank and acknowledge referenced codes from:
+We would like to express our gratitude to the authors of the following repositories, from which we referenced code:
 
-* [ThinkMatch](https://github.com/Thinklab-SJTU/ThinkMatch): an open sourced repository for deep graph matching algorithms.
 * [Multi-part-assembly](https://github.com/Wuziyi616/multi_part_assembly): breaking bad benchmark code. 
+* [ThinkMatch](https://github.com/Thinklab-SJTU/ThinkMatch): an open sourced repository for deep graph matching algorithms.
 * [Pointcept](https://github.com/Pointcept/Pointcept): providing point transformer structure.
+
+We would also like to thank the authors of all the packages we use.
+We welcome any valuable suggestions for improving our repository.
+
 
 ## Citation
 
@@ -102,4 +110,5 @@ If you find this repository useful in your research, please cite
       eprint={2305.17975},
       archivePrefix={arXiv},
       primaryClass={cs.CV}
-}```
+}
+```
