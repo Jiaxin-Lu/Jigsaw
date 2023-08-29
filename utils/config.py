@@ -22,10 +22,7 @@ __C.DATASET = ""
 
 # Other dataset specific configs should be imported from dataset_config.py
 
-#
-# Task
-#
-__C.TASK = ""
+# wandb project name
 __C.PROJECT = ""
 
 #
@@ -34,14 +31,8 @@ __C.PROJECT = ""
 
 __C.TRAIN = edict()
 
-# Training start epoch. If not 0, will be resumed from checkpoint.
-__C.TRAIN.START_EPOCH = 0
-
 # Total epochs
 __C.TRAIN.NUM_EPOCHS = 200
-
-# Whether test before start training
-__C.TRAIN.PRE_TEST = False
 
 # Optimizer type
 __C.TRAIN.OPTIMIZER = "SGD"
@@ -75,7 +66,7 @@ __C.TRAIN.WEIGHT_DECAY = 0.0
 __C.TRAIN.MOMENTUM = 0.9
 
 # Check val every n epoch
-__C.TRAIN.VAL_EVERY = 1
+__C.TRAIN.VAL_EVERY = 5
 
 # Visualization during training
 __C.TRAIN.VIS = True
@@ -102,12 +93,6 @@ __C.LOSS = edict()
 #
 
 __C.EVAL = edict()
-
-# Evaluation epoch number
-__C.EVAL.EPOCH = 250
-
-# Evaluation loss
-__C.EVAL.LOSS = ""
 
 #
 # MISC

@@ -193,7 +193,7 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
                         "n_critical_pcs": n_critical_pcs,
                     }
                 )
-                print("update critical_pcs based on prediction")
+                # print("update critical_pcs based on prediction")
 
         n_critical_pcs = data_dict.get("n_critical_pcs", None)
         critical_label = data_dict.get("critical_label", None)

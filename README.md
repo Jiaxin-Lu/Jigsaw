@@ -1,6 +1,5 @@
 # Jigsaw: Learning to Assemble Multiple Fractured Objects
 
----
 
 This repository contains a minimal PyTorch implementation of the paper 
 "[Jigsaw: Learning to Assemble Multiple Fractured Objects](https://arxiv.org/abs/2305.17975)".
@@ -8,7 +7,6 @@ This repository contains a minimal PyTorch implementation of the paper
 
 ## Installation
 
----
 
 This repository has been developed and tested 
 with Ubuntu 18.04 and CUDA 11.0. 
@@ -27,11 +25,11 @@ To set up the required environment, follow these steps:
 
 ## Datasets
 
----
-
 We provide support for the 
 [Breaking Bad Dataset](https://breaking-bad-dataset.github.io/).
 For more information about data processing, please refer to the dataset website.
+Please make sure you use the updated inner-face-free version, as our
+tests are all based on that version.
 
 After processing the data, ensure that you have a folder named `data` with the following structure:
 ```
@@ -51,7 +49,6 @@ If you want to test the `artifact` and `other` subsets, the structure should fol
 
 ### Run the Experiment
 
----
 
 For training, run
 ```shell
@@ -75,17 +72,19 @@ and we will update the benchmark accordingly!
 
 ## Pretrained Weights
 
----
 To use the pretrained weights, 
-download the weight file and 
-add the following YAML configuration to your configuration file:
+download the weight file [**here**](https://drive.google.com/drive/folders/1HtrKEnpSTY87uis_i63Pas9P2xOiyOOW?usp=sharing) 
+and add the following configuration to your configuration file:
 ```yaml
 WEIGHT_FILE: path/to/your/weight_file.ckpt
 ```
 
-## Acknowledgement
+## Tutorial
 
----
+We provide a [tutorial](docs/tutorial.md) to help you better understand
+each component of this code base.
+
+## Acknowledgement
 
 We would like to express our gratitude to the authors of the following repositories, from which we referenced code:
 
@@ -99,7 +98,6 @@ We welcome any valuable suggestions for improving our repository.
 
 ## Citation
 
----
 
 If you find this repository useful in your research, please cite
 ```

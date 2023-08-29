@@ -1,7 +1,7 @@
 MODEL_NAME: jigsaw_4x4_128_512_250e_cosine_everyday
 MODULE: jigsaw
 
-PROJECT: eval_jigsaw
+PROJECT: jigsaw
 
 DATASET: breaking_bad.all_piece_matching
 
@@ -22,7 +22,7 @@ CALLBACK:
   CHECKPOINT_MONITOR: val/mat_f1
   CHECKPOINT_MODE: max
 
-DATA:
+DATA:  # you shall use DATA instead of upper_case_dataset_name
   SUBSET: everyday
   DATA_FN: 'everyday.{}.txt'
   MAX_NUM_PART: 20
@@ -30,4 +30,10 @@ DATA:
   SAMPLE_BY: area
   MIN_PART_POINT: 30
   FRACTURE_LABEL_THRESHOLD: 0.025
+
+MODEL:  # you shall use MODEL instead of upper_case_module_name
+  ENCODER: pointnet2_pt.msg.dynamic
+
+# STATS is for eval
+#STATS: "./results/jigsaw_4x4_128_512_250e_cosine_everyday/stats/eval"
 
