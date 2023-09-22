@@ -115,7 +115,8 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
         return critical_feats
 
     def forward(self, data_dict):
-        """Forward pass to predict matching
+        """
+        Forward pass to predict matching
         :param data_dict:
                 - part_pcs: [B, N_sum, 3]
                 - part_feats: [B, N_sum, F] reused or None
@@ -435,11 +436,11 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
     def compute_label(self, part_pcs, nps, n_valid, label_thresholds):
         """
         Compute ground truth label of fracture points.
-        @param part_pcs: all points from all pieces, [B, N_sum, 3]
-        @param nps: number of points for each piece, [B, N]
-        @param n_valid: number of valid parts in each object, [B]
-        @param label_thresholds: threshold for ground truth label, [B, N_sum]
-        @return: labels: 1 if point is a fracture point and 0 otherwise [B, N_sum]
+        :param part_pcs: all points from all pieces, [B, N_sum, 3]
+        :param nps: number of points for each piece, [B, N]
+        :param n_valid: number of valid parts in each object, [B]
+        :param label_thresholds: threshold for ground truth label, [B, N_sum]
+        :return: labels: 1 if point is a fracture point and 0 otherwise [B, N_sum]
         """
         B, N_, _ = part_pcs.shape
         dists = torch.sqrt(square_distance(part_pcs, part_pcs))

@@ -80,7 +80,7 @@ The matching loss and rigidity loss we used are implemented in `utils/loss.py`
 ThinkMatch and Pygmtools for the source code.
 
 As a side note, we implement two segmentation strategy based on binary and multi-class 
-classification for now. Our recent empirical findings highlight that
+classification for now. Our recent empirical findings indicate that
 the latter version is slightly (~1.0 improvement in R metrics) better. 
 You can find both versions of checkpoints in our release.
 
@@ -147,7 +147,6 @@ __C.UPPER_CASE_MODULE_NAME.LOSS.w1 = 1.0
 
 def get_model_cfg():
     return model_cfg.UPPER_CASE_MODULE_NAME
-
 ```
 
 Please remember that each configuration should be assigned with an initialization.
