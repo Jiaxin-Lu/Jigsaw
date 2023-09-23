@@ -155,7 +155,8 @@ If configurations aren't explicitly defined, the system defaults to their initia
 Keep in mind that the value types in your config must match their corresponding initializations.
 
 A sample config file for training Jigsaw can be found in the `experiments` folder.
-We open source the config file along with the model checkpoints.
+We open source the config file along with the model checkpoints. You can find a training log on
+this [wandb page](https://api.wandb.ai/links/assembly/u5s0xykd).
 
 
 ## PS
