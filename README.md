@@ -17,6 +17,8 @@ To set up the required environment, follow these steps:
     conda env create -f environment.yaml
     conda activate assembly
     ```
+   You may also use `environment_simple.yaml` for better adaptability, 
+   but it is not tested on our machine.
 2. Install custom CUDA ops for Chamfer distance:
     ```shell
     cd utils/chamfer
@@ -47,7 +49,7 @@ data
 Only the `everyday` subset is necessary for training. 
 If you want to test the `artifact` and `other` subsets, the structure should follow the same pattern.
 
-### Run the Experiment
+## Run the Experiment
 
 
 For training, run
