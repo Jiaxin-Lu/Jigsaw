@@ -5,6 +5,11 @@ This repository contains a minimal PyTorch implementation of the paper
 "[Jigsaw: Learning to Assemble Multiple Fractured Objects](https://arxiv.org/abs/2305.17975)".
 
 
+As we move forward, we are committed to enriching this codebase to further support
+research for assembly. Our plan involves expanding the range of supported datasets,
+encoders, models, visualization, and more supporting scripts! Please let us know
+which part should we prioritize.
+
 ## Installation
 
 
