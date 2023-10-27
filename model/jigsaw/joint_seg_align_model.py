@@ -182,7 +182,7 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
 
         if (not self.training) and self.trainer.testing:
             # the label is only used in testing
-            # if you want to use them in training, the number of critical points might be too large
+            # if you want to use them in training, the number of critical points might be too large for V100.
             with torch.no_grad():
                 critical_pcs_idx, n_critical_pcs = get_critical_pcs_from_label(
                     cls_pred, n_pcs
@@ -194,7 +194,7 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
                         "n_critical_pcs": n_critical_pcs,
                     }
                 )
-                # print("update critical_pcs based on prediction")
+                # print("update critical_pcs based on prediction")  # a test time reminder
 
         n_critical_pcs = data_dict.get("n_critical_pcs", None)
         critical_label = data_dict.get("critical_label", None)
@@ -364,6 +364,7 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
 
         mat = out_dict["ds_mat"]
 
+        # calc matching loss
         mat_loss = permutation_loss(
             mat, gt_perm, n_critical_pcs_sum, n_critical_pcs_sum
         )
@@ -397,6 +398,7 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
             }
         )
 
+        # calc matching metric to monitor training process
         perm_mat = out_dict.get("perm_mat", None)
         if perm_mat is not None:
             tp, fp, fn = 0, 0, 0
@@ -464,7 +466,7 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
         :param n_part: [B] number of parts of each object
         :param pos_msk: positive mask
         :param neg_msk: negative mask
-        :return:
+        :return: msk: a matrix mask out diagonal squares with neg_msk.
         """
         # shape [B, N_, N_]
         B = n_pcs.shape[0]
