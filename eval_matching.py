@@ -74,7 +74,7 @@ def test_model(cfg):
     else:
         ckp_path = None
 
-    model = model.load_from_checkpoint(checkpoint_path=ckp_path, strict=False)
+    model = model.load_from_checkpoint(checkpoint_path=ckp_path, strict=False, cfg=cfg)
     print("Finish Setting -----")
     trainer.test(model, val_loader)
 

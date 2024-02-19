@@ -7,9 +7,9 @@ import torch
 from scipy.spatial.transform import Rotation as R
 from torch import optim
 
-from utils import Rotation3D, trans_metrics, rot_metrics, calc_part_acc, global_alignment
+from utils import Rotation3D, trans_metrics, rot_metrics, calc_part_acc
 from utils import filter_wd_parameters, CosineAnnealingWarmupRestarts
-from utils import lexico_iter, get_trans_from_mat
+from utils import estimate_global_transform, dict_to_numpy
 
 
 class MatchingBaseModel(pytorch_lightning.LightningModule):
@@ -22,16 +22,9 @@ class MatchingBaseModel(pytorch_lightning.LightningModule):
         if len(cfg.STATS):
             os.makedirs(cfg.STATS, exist_ok=True)
             self.stats = dict()
-            self.stats['part_acc'] = []
-            self.stats['chamfer_distance'] = []
-            for metric in ['mse', 'rmse', 'mae']:
-                self.stats[f'trans_{metric}'] = []
-                self.stats[f'rot_{metric}'] = []
-            self.stats['pred_trans'] = []
-            self.stats['gt_trans'] = []
-            self.stats['pred_rot'] = []
-            self.stats['gt_rot'] = []
-            self.stats['part_valids'] = []
+            self.stats['datas'] = []
+            self.stats['preds'] = []
+            self.stats['metrics'] = []
         else:
             self.stats = None
 
@@ -127,15 +120,16 @@ class MatchingBaseModel(pytorch_lightning.LightningModule):
                 Rotation3D(part_quat, rot_type='quat').convert('rmat')
         part_valids = data_dict['part_valids']
         metric_dict = dict()
-        part_pcs_nb = data_dict['part_pcs']
-        pred_trans = torch.tensor(trans_dict['trans'], dtype=torch.float32, device=part_pcs_nb.device)
-        pred_rot = torch.tensor(trans_dict['rot'], dtype=torch.float32, device=part_pcs_nb.device)
+        part_pcs = data_dict['part_pcs']
+        pred_trans = torch.tensor(trans_dict['trans'], dtype=torch.float32, device=part_pcs.device)
+        pred_rot = torch.tensor(trans_dict['rot'], dtype=torch.float32, device=part_pcs.device)
         pred_rot = Rotation3D(pred_rot, rot_type='rmat')
         gt_trans, gt_rot = data_dict['part_trans'], data_dict['part_rot']
-        N_SUM = part_pcs_nb.shape[1]
+        N_SUM = part_pcs.shape[1]
         n_pcs = data_dict['n_pcs']
         B, P = n_pcs.shape
-        part_pcs = []
+        # resample part_pcs with same number of points per part to fit the input requirement of chamfer distance
+        part_pcs_resampled = []
         for b in range(B):
             point_sum = 0
             new_pcs = []
@@ -144,12 +138,12 @@ class MatchingBaseModel(pytorch_lightning.LightningModule):
                     idx = torch.randint(low=point_sum - 1, high=point_sum, size=(N_SUM,))
                 else:
                     idx = torch.randint(low=point_sum, high=point_sum + n_pcs[b, p].item(), size=(N_SUM,))
-                new_pcs.append(part_pcs_nb[b, idx, :])
+                new_pcs.append(part_pcs[b, idx, :])
                 point_sum += n_pcs[b, p]
             new_pcs = torch.stack(new_pcs)
-            part_pcs.append(new_pcs)
-        part_pcs = torch.stack(part_pcs).to(part_pcs_nb.device)
-        part_acc, cd = calc_part_acc(part_pcs, pred_trans, gt_trans,
+            part_pcs_resampled.append(new_pcs)
+        part_pcs_resampled = torch.stack(part_pcs_resampled).to(part_pcs.device)
+        part_acc, cd = calc_part_acc(part_pcs_resampled, pred_trans, gt_trans,
                                      pred_rot, gt_rot, part_valids, ret_cd=True)
         metric_dict['part_acc'] = part_acc.mean()
         metric_dict['chamfer_distance'] = cd.mean()
@@ -160,26 +154,25 @@ class MatchingBaseModel(pytorch_lightning.LightningModule):
             rot_met = rot_metrics(
                 pred_rot, gt_rot, valids=part_valids, metric=metric)
             metric_dict[f'rot_{metric}'] = rot_met.mean()
-            if self.stats is not None:
-                self.stats[f'trans_{metric}'].append(trans_met.cpu().numpy())
-                self.stats[f'rot_{metric}'].append(rot_met.cpu().numpy())
+            
         if self.stats is not None:
-            self.stats['part_acc'].append(part_acc.cpu().numpy())
-            self.stats['chamfer_distance'].append(cd.cpu().numpy())
-            self.stats['pred_trans'].append(pred_trans.cpu().numpy())
-            self.stats['gt_trans'].append(gt_trans.cpu().numpy())
-            self.stats['pred_rot'].append(pred_rot.to_rmat().cpu().numpy())
-            self.stats['gt_rot'].append(gt_rot.to_rmat().cpu().numpy())
-            self.stats['part_valids'].append(part_valids.cpu().numpy())
+            # necessary info to restore this test, while making the stats file not too large
+            saved_data = {
+                'gt_trans': gt_trans,
+                'gt_rot': gt_rot,
+                'data_id': data_dict['data_id']
+            }
+            self.stats['datas'].append(saved_data)
+            self.stats['metrics'].append(dict_to_numpy(metric_dict))
+            self.stats['preds'].append(dict_to_numpy(trans_dict))
 
         return metric_dict
 
     def _loss_function(self, data_dict, out_dict={}, optimizer_idx=-1):
         raise NotImplementedError("loss_function should be implemented per model")
 
-    def transformation_loss(self, data_dict, out_dict):
+    def global_alignment(self, data_dict, out_dict):
         perm_mat = out_dict['perm_mat'].cpu().numpy()  # [B, N_, N_]
-        ds_mat = out_dict['ds_mat'].cpu().numpy()  # [B, N_, N_]
         gt_pcs = data_dict['gt_pcs'].cpu().numpy()
         part_pcs = data_dict['part_pcs'].cpu().numpy()
         part_quat = data_dict['part_quat'].cpu().numpy()
@@ -197,171 +190,19 @@ class MatchingBaseModel(pytorch_lightning.LightningModule):
 
         gt_pcs = gt_pcs[:, :, :3]
         part_pcs = part_pcs[:, :, :3]
-        B, N_sum, _ = gt_pcs.shape
         assert n_pcs is not None
         assert part_valids is not None
         assert n_valid is not None
-        P = part_valids.shape[-1]
-        N_ = ds_mat.shape[-1]
 
         critical_pcs_idx = data_dict.get('critical_pcs_idx', None)  # [B, N_sum]
-        # critical_pcs_pos = data_dict.get('critical_pcs_pos', None)  # [\sum_B \sum_P n_critical_pcs[B, P], 3]
         n_critical_pcs = data_dict.get('n_critical_pcs', None)  # [B, P]
 
         n_critical_pcs = n_critical_pcs.cpu().numpy()
         critical_pcs_idx = critical_pcs_idx.cpu().numpy()
 
-        density_match_mat = ds_mat
-        best_match = np.argmax(ds_mat.reshape(-1, N_), axis=-1)
-        density_match_mat_mask = np.zeros((B * N_, N_))
-        density_match_mat_mask[np.arange(B * N_), best_match] = 1
-        density_match_mat_mask = density_match_mat_mask.reshape(ds_mat.shape)
-
-        pred_dict = self.compute_global_transformation(n_critical_pcs,
-                                                       perm_mat,
-                                                       gt_pcs, critical_pcs_idx,
-                                                       part_pcs, n_valid, n_pcs,
-                                                       part_quat, part_trans,
-                                                       )
-        metric_dict = self.calc_metric(data_dict, pred_dict)
-        return metric_dict
-
-    def compute_global_transformation(self, n_critical_pcs, match_mat, gt_pcs,
-                                      critical_pcs_idx, part_pcs, n_valid, n_pcs,
-                                      part_quat, part_trans):
-        # B, P, N, _ = gt_pcs.shape
-        B, N, _ = gt_pcs.shape
-        P = n_critical_pcs.shape[-1]
-        n_critical_pcs_cumsum = np.cumsum(n_critical_pcs, axis=-1)
-        n_pcs_cumsum = np.cumsum(n_pcs, axis=-1)
-        pred_dict = dict()
-        pred_dict['rot'] = np.zeros((B, P, 3, 3))
-        pred_dict['trans'] = np.zeros((B, P, 3))
-        for b in range(B):
-            piece_connections = np.zeros(n_valid[b])
-            sum_full_matched = np.sum(match_mat[b])
-            edges, transformations, uncertainty = [], [], []
-            for idx1, idx2 in lexico_iter(np.arange(n_valid[b])):
-                cri_st1 = 0 if idx1 == 0 else n_critical_pcs_cumsum[b, idx1 - 1]
-                cri_ed1 = n_critical_pcs_cumsum[b, idx1]
-                cri_st2 = 0 if idx2 == 0 else n_critical_pcs_cumsum[b, idx2 - 1]
-                cri_ed2 = n_critical_pcs_cumsum[b, idx2]
-
-                pc_st1 = 0 if idx1 == 0 else n_pcs_cumsum[b, idx1 - 1]
-                pc_ed1 = n_pcs_cumsum[b, idx1]
-                pc_st2 = 0 if idx2 == 0 else n_pcs_cumsum[b, idx2 - 1]
-                pc_ed2 = n_pcs_cumsum[b, idx2]
-
-                np1 = n_pcs[b, idx1]
-                np2 = n_pcs[b, idx2]
-                n1 = n_critical_pcs[b, idx1]
-                n2 = n_critical_pcs[b, idx2]
-                if n1 == 0 or n2 == 0:
-                    continue
-                mat = match_mat[b, cri_st1:cri_ed1, cri_st2:cri_ed2]  # [N1, N2]
-                mat_s = np.sum(mat).astype(np.int32)
-                mat2 = match_mat[b, cri_st2:cri_ed2, cri_st1:cri_ed1]
-                mat_s2 = np.sum(mat2).astype(np.int32)
-                if mat_s < mat_s2:
-                    mat = mat2.transpose(1, 0)
-                    mat_s = mat_s2
-                if n_valid[b] > 2 and mat_s == 0 and sum_full_matched > 0:
-                    continue
-                if np.count_nonzero(mat) < 3:
-                    continue
-                pc1 = part_pcs[b, pc_st1:pc_ed1]  # N, 3
-                pc2 = part_pcs[b, pc_st2:pc_ed2]  # N, 3
-                if critical_pcs_idx is not None:
-                    critical_pcs_src = pc1[critical_pcs_idx[b, pc_st1: pc_st1 + n1]]
-                    critical_pcs_tgt = pc2[critical_pcs_idx[b, pc_st2: pc_st2 + n2]]
-                    trans_mat = get_trans_from_mat(critical_pcs_src, critical_pcs_tgt, mat)
-                    edges.append(np.array([idx2, idx1]))
-                    transformations.append(trans_mat)
-                    uncertainty.append(1.0 / (mat_s))
-                    piece_connections[idx1] = piece_connections[idx1] + 1
-                    piece_connections[idx2] = piece_connections[idx2] + 1
-            ## connect small pieces with less than 3 correspondence
-            for idx1, idx2 in lexico_iter(np.arange(n_valid[b])):
-                if piece_connections[idx1] > 0 and piece_connections[idx2] > 0:
-                    continue
-                if piece_connections[idx1] == 0 and piece_connections[idx2] == 0:
-                    continue
-                cri_st1 = 0 if idx1 == 0 else n_critical_pcs_cumsum[b, idx1 - 1]
-                cri_ed1 = n_critical_pcs_cumsum[b, idx1]
-                cri_st2 = 0 if idx2 == 0 else n_critical_pcs_cumsum[b, idx2 - 1]
-                cri_ed2 = n_critical_pcs_cumsum[b, idx2]
-
-                pc_st1 = 0 if idx1 == 0 else n_pcs_cumsum[b, idx1 - 1]
-                pc_ed1 = n_pcs_cumsum[b, idx1]
-                pc_st2 = 0 if idx2 == 0 else n_pcs_cumsum[b, idx2 - 1]
-                pc_ed2 = n_pcs_cumsum[b, idx2]
-
-                np1 = n_pcs[b, idx1]
-                np2 = n_pcs[b, idx2]
-                n1 = n_critical_pcs[b, idx1]
-                n2 = n_critical_pcs[b, idx2]
-                if n1 == 0 or n2 == 0:
-                    edges.append(np.array([idx2, idx1]))
-                    trans_mat = np.eye(4)
-                    pc1 = part_pcs[b, pc_st1:pc_ed1]
-                    pc2 = part_pcs[b, pc_st2:pc_ed2]
-                    if n2 > 0:
-                        trans_mat[:3, 3] = [critical_pcs_idx[b, pc_st2]] - np.sum(pc1, axis=0)
-                    elif n1 > 0:
-                        trans_mat[:3, 3] = np.sum(pc2, axis=0) - pc1[critical_pcs_idx[b, pc_st1]]
-                    else:
-                        trans_mat[:3, 3] = np.sum(pc2, axis=0) - np.sum(pc1, axis=0)
-                    transformations.append(trans_mat)
-                    uncertainty.append(1)
-                    piece_connections[idx1] = piece_connections[idx1] + 1
-                    piece_connections[idx2] = piece_connections[idx2] + 1
-                    continue
-
-                mat = match_mat[b, cri_st1:cri_ed1, cri_st2:cri_ed2]  # [N1, N2]
-                mat_s = np.sum(mat).astype(np.int32)
-                mat2 = match_mat[b, cri_st2:cri_ed2, cri_st1:cri_ed1]
-                mat_s2 = np.sum(mat2).astype(np.int32)
-                if mat_s < mat_s2:
-                    mat = mat2.transpose(1, 0)
-                    mat_s = mat_s2
-                pc1 = part_pcs[b, pc_st1:pc_ed1]  # N, 3
-                pc2 = part_pcs[b, pc_st2:pc_ed2]  # N, 3
-                if critical_pcs_idx is not None:
-                    critical_pcs_src = pc1[critical_pcs_idx[b, pc_st1: pc_st1 + n1]]
-                    critical_pcs_tgt = pc2[critical_pcs_idx[b, pc_st2: pc_st2 + n2]]
-                    trans_mat = np.eye(4)
-                    matching1, matching2 = np.nonzero(mat)
-                    trans_mat[:3, 3] = np.sum(critical_pcs_tgt[matching2], axis=0) - \
-                                       np.sum(critical_pcs_src[matching1], axis=0)
-                    edges.append(np.array([idx2, idx1]))
-                    transformations.append(trans_mat)
-                    uncertainty.append(1)
-                    piece_connections[idx1] = piece_connections[idx1] + 1
-                    piece_connections[idx2] = piece_connections[idx2] + 1
-            # print(piece_connections, len(edges), len(uncertainty))
-            if len(edges) > 0:
-                edges = np.stack(edges)
-                transformations = np.stack(transformations)
-                uncertainty = np.array(uncertainty)
-                global_transformations = global_alignment(n_valid[b], edges, transformations, uncertainty)
-                pivot = 1
-                for idx in range(n_valid[b]):
-                    num_points = n_pcs[b, idx]
-                    if num_points > n_pcs[b, pivot]:
-                        pivot = idx
-            else:
-                global_transformations = np.repeat(np.eye(4).reshape((1, 4, 4)), n_valid[b], axis=0)
-                pivot = 0
-            to_gt_trans_mat = np.eye(4)
-            quat = part_quat[b, pivot]
-            to_gt_trans_mat[:3, :3] = R.from_quat(quat[[1, 2, 3, 0]]).as_matrix()
-            to_gt_trans_mat[:3, 3] = part_trans[b, pivot]
-
-            offset = to_gt_trans_mat @ np.linalg.inv(global_transformations[pivot, :, :])
-            for idx in range(n_valid[b]):
-                global_transformations[idx, :, :] = offset @ global_transformations[idx, :, :]
-            pred_dict['rot'][b, :n_valid[b], :, :] = global_transformations[:, :3, :3]
-            pred_dict['trans'][b, :n_valid[b], :] = global_transformations[:, :3, 3]
+        pred_dict = estimate_global_transform(perm_mat, part_pcs, n_valid, 
+                                              n_pcs, n_critical_pcs, critical_pcs_idx, 
+                                              part_quat, part_trans, align_pivot=True)
         return pred_dict
 
     def loss_function(self, data_dict, optimizer_idx, mode):
@@ -387,8 +228,12 @@ class MatchingBaseModel(pytorch_lightning.LightningModule):
         if not self.training:
             if 'batch_size' not in loss_dict:
                 loss_dict['batch_size'] = out_dict['batch_size']
+
         if mode == 'test':
-            loss_dict.update(self.transformation_loss(data_dict, out_dict))
+            pred_dict = self.global_alignment(data_dict, out_dict)
+            metric_dict = self.calc_metric(data_dict, pred_dict)
+            loss_dict.update(metric_dict)
+
         return loss_dict
 
     def forward_pass(self, data_dict, mode, optimizer_idx):

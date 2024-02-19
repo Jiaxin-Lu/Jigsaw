@@ -55,7 +55,7 @@ def estimate_poses_given_rot(
     return result
 
 
-def shonan_averaging(v_num, edges, transformations, uncertainty):
+def shonan_averaging(v_num, edges, transformations, uncertainty, verbose=False):
     """
     Input:
     edges: [m, 2], set of directed edges (i, j)
@@ -90,7 +90,8 @@ def shonan_averaging(v_num, edges, transformations, uncertainty):
             factors, rotations, np.array(new_uncertainty), d=3
         )
     except:
-        print("shonan did not converge")
+        if verbose:
+            print("shonan did not converge")
         global_pose_results = []
         for i in range(v_num):
             global_pose_result = np.eye(4)

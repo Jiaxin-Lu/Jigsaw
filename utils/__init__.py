@@ -1,7 +1,7 @@
 from .chamfer import chamfer_distance
 from .color import COLOR
 from .critical_pcs import get_critical_pcs_from_label
-from .estimate_transform import get_trans_from_mat
+from .estimate_transform import get_trans_from_mat, estimate_global_transform
 from .eval_utils import trans_metrics, rot_metrics, calc_part_acc, \
     calc_connectivity_acc
 from .global_alignment import global_alignment
@@ -16,4 +16,5 @@ from .timer import Timer, AverageMeter
 from .transforms import *
 from .utils import colorize_part_pc, filter_wd_parameters, _get_clones, \
     pickle_load, pickle_dump, save_pc, lexico_iter, \
-    match_mat_to_piecewise, get_batch_length_from_part_points
+    match_mat_to_piecewise, get_batch_length_from_part_points, \
+    dict_to_numpy
