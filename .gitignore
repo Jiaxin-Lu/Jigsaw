@@ -222,3 +222,6 @@ dmypy.json
 cython_debug/
 
 .idea/
+
+results/
+data/

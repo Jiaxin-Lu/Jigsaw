@@ -2,7 +2,156 @@ import numpy as np
 import open3d as o3d
 import torch
 
-from .pc_utils import to_o3d_pcd, to_o3d_feats, to_tensor, mutual_selection
+from scipy.spatial.transform import Rotation as R
+import numpy as np
+from .utils import lexico_iter
+from .global_alignment import global_alignment
+
+
+def estimate_global_transform(perm_mat, part_pcs, n_valid, n_pcs, n_critical_pcs, critical_pcs_idx, part_quat, part_trans, align_pivot=True):
+    """
+    Estimate global transformation based on the matching and points.
+    Align to the largest piece if `align_pivot` is True.
+    """
+    B, P = n_critical_pcs.shape
+    n_critical_pcs_cumsum = np.cumsum(n_critical_pcs, axis=-1)
+    n_pcs_cumsum = np.cumsum(n_pcs, axis=-1)
+    pred_dict = dict()
+    pred_dict['rot'] = np.zeros((B, P, 3, 3))
+    pred_dict['trans'] = np.zeros((B, P, 3))
+    for b in range(B):
+        piece_connections = np.zeros(n_valid[b])
+        sum_full_matched = np.sum(perm_mat[b])
+        edges, transformations, uncertainty = [], [], []
+
+        # compute pairwise relative pose
+        for idx1, idx2 in lexico_iter(np.arange(n_valid[b])):
+            cri_st1 = 0 if idx1 == 0 else n_critical_pcs_cumsum[b, idx1 - 1]
+            cri_ed1 = n_critical_pcs_cumsum[b, idx1]
+            cri_st2 = 0 if idx2 == 0 else n_critical_pcs_cumsum[b, idx2 - 1]
+            cri_ed2 = n_critical_pcs_cumsum[b, idx2]
+
+            pc_st1 = 0 if idx1 == 0 else n_pcs_cumsum[b, idx1 - 1]
+            pc_ed1 = n_pcs_cumsum[b, idx1]
+            pc_st2 = 0 if idx2 == 0 else n_pcs_cumsum[b, idx2 - 1]
+            pc_ed2 = n_pcs_cumsum[b, idx2]
+
+            n1 = n_critical_pcs[b, idx1]
+            n2 = n_critical_pcs[b, idx2]
+            if n1 == 0 or n2 == 0:
+                continue
+            mat = perm_mat[b, cri_st1:cri_ed1, cri_st2:cri_ed2]  # [N1, N2]
+            mat_s = np.sum(mat).astype(np.int32)
+            mat2 = perm_mat[b, cri_st2:cri_ed2, cri_st1:cri_ed1]
+            mat_s2 = np.sum(mat2).astype(np.int32)
+            if mat_s < mat_s2:
+                mat = mat2.transpose(1, 0)
+                mat_s = mat_s2
+            if n_valid[b] > 2 and mat_s == 0 and sum_full_matched > 0:
+                continue
+            if mat_s < 3:
+                continue
+            pc1 = part_pcs[b, pc_st1:pc_ed1]  # N, 3
+            pc2 = part_pcs[b, pc_st2:pc_ed2]  # N, 3
+            if critical_pcs_idx is not None:
+                critical_pcs_src = pc1[critical_pcs_idx[b, pc_st1: pc_st1 + n1]]
+                critical_pcs_tgt = pc2[critical_pcs_idx[b, pc_st2: pc_st2 + n2]]
+                trans_mat = get_trans_from_mat(critical_pcs_src, critical_pcs_tgt, mat)
+                edges.append(np.array([idx2, idx1]))
+                transformations.append(trans_mat)
+                uncertainty.append(1.0 / (mat_s))
+                piece_connections[idx1] = piece_connections[idx1] + 1
+                piece_connections[idx2] = piece_connections[idx2] + 1
+
+        # connect small pieces with less than 3 correspondence
+        for idx1, idx2 in lexico_iter(np.arange(n_valid[b])):
+            if piece_connections[idx1] > 0 and piece_connections[idx2] > 0:
+                continue
+            if piece_connections[idx1] == 0 and piece_connections[idx2] == 0:
+                continue
+            cri_st1 = 0 if idx1 == 0 else n_critical_pcs_cumsum[b, idx1 - 1]
+            cri_ed1 = n_critical_pcs_cumsum[b, idx1]
+            cri_st2 = 0 if idx2 == 0 else n_critical_pcs_cumsum[b, idx2 - 1]
+            cri_ed2 = n_critical_pcs_cumsum[b, idx2]
+
+            pc_st1 = 0 if idx1 == 0 else n_pcs_cumsum[b, idx1 - 1]
+            pc_ed1 = n_pcs_cumsum[b, idx1]
+            pc_st2 = 0 if idx2 == 0 else n_pcs_cumsum[b, idx2 - 1]
+            pc_ed2 = n_pcs_cumsum[b, idx2]
+
+            n1 = n_critical_pcs[b, idx1]
+            n2 = n_critical_pcs[b, idx2]
+            if n1 == 0 or n2 == 0:
+                edges.append(np.array([idx2, idx1]))
+                trans_mat = np.eye(4)
+                pc1 = part_pcs[b, pc_st1:pc_ed1]
+                pc2 = part_pcs[b, pc_st2:pc_ed2]
+                if n2 > 0:
+                    trans_mat[:3, 3] = pc2[critical_pcs_idx[b, pc_st2]] - np.sum(pc1, axis=0)
+                elif n1 > 0:
+                    trans_mat[:3, 3] = np.sum(pc2, axis=0) - pc1[critical_pcs_idx[b, pc_st1]]
+                else:
+                    trans_mat[:3, 3] = np.sum(pc2, axis=0) - np.sum(pc1, axis=0)
+                transformations.append(trans_mat)
+                uncertainty.append(1)
+                piece_connections[idx1] = piece_connections[idx1] + 1
+                piece_connections[idx2] = piece_connections[idx2] + 1
+                continue
+
+            mat = perm_mat[b, cri_st1:cri_ed1, cri_st2:cri_ed2]  # [N1, N2]
+            mat_s = np.sum(mat).astype(np.int32)
+            mat2 = perm_mat[b, cri_st2:cri_ed2, cri_st1:cri_ed1]
+            mat_s2 = np.sum(mat2).astype(np.int32)
+            if mat_s < mat_s2:
+                mat = mat2.transpose(1, 0)
+                mat_s = mat_s2
+            pc1 = part_pcs[b, pc_st1:pc_ed1]  # N, 3
+            pc2 = part_pcs[b, pc_st2:pc_ed2]  # N, 3
+            if critical_pcs_idx is not None:
+                critical_pcs_src = pc1[critical_pcs_idx[b, pc_st1: pc_st1 + n1]]
+                critical_pcs_tgt = pc2[critical_pcs_idx[b, pc_st2: pc_st2 + n2]]
+                trans_mat = np.eye(4)
+                matching1, matching2 = np.nonzero(mat)
+                trans_mat[:3, 3] = np.sum(critical_pcs_tgt[matching2], axis=0) - \
+                                    np.sum(critical_pcs_src[matching1], axis=0)
+                edges.append(np.array([idx2, idx1]))
+                transformations.append(trans_mat)
+                uncertainty.append(1)
+                piece_connections[idx1] = piece_connections[idx1] + 1
+                piece_connections[idx2] = piece_connections[idx2] + 1
+                
+        if len(edges) > 0:
+            edges = np.stack(edges)
+            transformations = np.stack(transformations)
+            uncertainty = np.array(uncertainty)
+            global_transformations = global_alignment(n_valid[b], edges, transformations, uncertainty)
+            pivot = 1
+            for idx in range(n_valid[b]):
+                num_points = n_pcs[b, idx]
+                if num_points > n_pcs[b, pivot]:
+                    pivot = idx
+        else:
+            global_transformations = np.repeat(np.eye(4).reshape((1, 4, 4)), n_valid[b], axis=0)
+            pivot = 0
+        
+        if align_pivot:
+            global_transformations = align_to_pivot(global_transformations, part_quat[b], part_trans[b], n_valid[b], pivot=pivot)
+
+        pred_dict['rot'][b, :n_valid[b], :, :] = global_transformations[:, :3, :3]
+        pred_dict['trans'][b, :n_valid[b], :] = global_transformations[:, :3, 3]
+    return pred_dict
+
+
+def align_to_pivot(global_transformations, part_quat, part_trans, P, pivot=0):
+    to_pivot_trans_mat = np.eye(4)
+    quat = part_quat[pivot]
+    to_pivot_trans_mat[:3, :3] = R.from_quat(quat[[1, 2, 3, 0]]).as_matrix()
+    to_pivot_trans_mat[:3, 3] = part_trans[pivot]
+
+    offset = to_pivot_trans_mat @ np.linalg.inv(global_transformations[pivot, :, :])
+    for idx in range(P):
+        global_transformations[idx, :, :] = offset @ global_transformations[idx, :, :]
+    return global_transformations
 
 
 def run_ransac(xyz_i, xyz_j, corr_idx):
@@ -74,77 +223,6 @@ def get_trans_from_corr(pc_src, pc_tgt, corr):
     """
     trans_mat = run_ransac(pc_src, pc_tgt, corr)
     return trans_mat
-
-
-def ransac_pose_estimation(
-        src_pcd,
-        tgt_pcd,
-        src_feat,
-        tgt_feat,
-        mutual=False,
-        distance_threshold=0.05,
-        ransac_n=3,
-):
-    """
-    RANSAC pose estimation with two checkers
-    We follow D3Feat to set ransac_n = 3 for 3DMatch and ransac_n = 4 for KITTI.
-    For 3DMatch dataset, we observe significant improvement after changing ransac_n from 4 to 3.
-    """
-    if mutual:
-        if torch.cuda.device_count() >= 1:
-            device = torch.device("cuda")
-        else:
-            device = torch.device("cpu")
-        src_feat, tgt_feat = to_tensor(src_feat), to_tensor(tgt_feat)
-        scores = torch.matmul(
-            src_feat.to(device), tgt_feat.transpose(0, 1).to(device)
-        ).cpu()
-        selection = mutual_selection(scores[None, :, :])[0]
-        row_sel, col_sel = np.where(selection)
-        corrs = o3d.utility.Vector2iVector(np.array([row_sel, col_sel]).T)
-        src_pcd = to_o3d_pcd(src_pcd)
-        tgt_pcd = to_o3d_pcd(tgt_pcd)
-        result_ransac = o3d.pipelines.registration.registration_ransac_based_on_correspondence(
-            source=src_pcd,
-            target=tgt_pcd,
-            corres=corrs,
-            max_correspondence_distance=distance_threshold,
-            estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPoint(
-                False
-            ),
-            ransac_n=4,
-            criteria=o3d.pipelines.registration.RANSACConvergenceCriteria(
-                50000, 1000
-            ),
-        )
-    else:
-        src_pcd = to_o3d_pcd(src_pcd)
-        tgt_pcd = to_o3d_pcd(tgt_pcd)
-        src_feats = to_o3d_feats(src_feat)
-        tgt_feats = to_o3d_feats(tgt_feat)
-
-        result_ransac = o3d.pipelines.registration.registration_ransac_based_on_feature_matching(
-            src_pcd,
-            tgt_pcd,
-            src_feats,
-            tgt_feats,
-            distance_threshold,
-            o3d.pipelines.registration.TransformationEstimationPointToPoint(
-                False
-            ),
-            ransac_n,
-            [
-                o3d.pipelines.registration.CorrespondenceCheckerBasedOnEdgeLength(
-                    0.9
-                ),
-                o3d.pipelines.registration.CorrespondenceCheckerBasedOnDistance(
-                    distance_threshold
-                ),
-            ],
-            o3d.pipelines.registration.RANSACConvergenceCriteria(50000, 1000),
-        )
-
-    return result_ransac.transformation
 
 
 if __name__ == "__main__":

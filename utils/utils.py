@@ -47,6 +47,26 @@ def save_pc(pc, file):
     o3d.io.write_point_cloud(file, pcd)
 
 
+def dict_to_numpy(data_dict):
+    ret_dict = dict()
+    for k, v in data_dict.items():
+        if isinstance(v, torch.Tensor):
+            ret_dict[k] = v.detach().cpu().numpy()
+        elif isinstance(v, str):
+            ret_dict[k] = v
+        elif isinstance(v, np.ndarray):
+            ret_dict[k] = v
+        elif isinstance(v, list):
+            if isinstance(v[0], torch.Tensor):
+                v_device = [t.detach().cpu().numpy() for t in v]
+                ret_dict[k] = v_device
+            else:
+                ret_dict[k] = v
+        else:
+            ret_dict[k] = v
+    return ret_dict
+
+
 def colorize_part_pc(part_pc, colors):
     """Colorize part point cloud.
 
