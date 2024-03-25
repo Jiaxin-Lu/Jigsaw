@@ -108,12 +108,11 @@ We welcome any valuable suggestions for improving our repository.
 
 If you find this repository useful in your research, please cite
 ```
-@misc{lu2023jigsaw,
-      title={Jigsaw: Learning to Assemble Multiple Fractured Objects}, 
-      author={Jiaxin Lu and Yifan Sun and Qixing Huang},
-      year={2023},
-      eprint={2305.17975},
-      archivePrefix={arXiv},
-      primaryClass={cs.CV}
+@inproceedings{lu2023jigsaw,
+    title={Jigsaw: Learning to Assemble Multiple Fractured Objects},
+    author={Jiaxin Lu and Yifan Sun and Qixing Huang},
+    booktitle={Thirty-seventh Conference on Neural Information Processing Systems},
+    year={2023},
+    url={https://openreview.net/forum?id=OwpaO4w6K7}
 }
 ```
